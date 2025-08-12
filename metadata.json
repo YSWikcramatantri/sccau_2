@@ -1,0 +1,5 @@
+{
+  "name": "Sivali Astronomy Union Quiz Platform",
+  "description": "A web application for the Sivali Astronomy Union, featuring a portfolio homepage and a comprehensive quiz platform. Participants can register to receive a unique password, take an MCQ quiz, and have it automatically graded. Administrators have a secure dashboard to manage quiz availability, generate questions using AI, and review submissions.",
+  "requestFramePermissions": []
+}
