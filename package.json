@@ -3,5 +3,9 @@
   "name": "sivali-quiz-platform-client",
   "version": "1.0.0",
   "private": true,
-  "description": "Sivali Astronomy Union Quiz Platform (Client-side only)"
+  "description": "Sivali Astronomy Union Quiz Platform (Client-side only)",
+  "dependencies": {
+    "@google/genai": "^1.13.0",
+    "@netlify/functions": "^4.2.1"
+  }
 }
