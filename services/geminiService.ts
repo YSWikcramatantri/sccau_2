@@ -1,66 +1,30 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import type { Question } from "../types";
 
-// Schema for the expected JSON output from the Gemini API
-const quizSchema = {
-  type: Type.ARRAY,
-  description: "A list of multiple-choice questions for a quiz.",
-  items: {
-    type: Type.OBJECT,
-    properties: {
-      questionText: {
-        type: Type.STRING,
-        description: "The text of the quiz question.",
-      },
-      options: {
-        type: Type.ARRAY,
-        description: "An array of 4 possible answers.",
-        items: {
-          type: Type.STRING,
-        },
-      },
-      correctAnswerIndex: {
-        type: Type.INTEGER,
-        description: "The 0-based index of the correct answer in the 'options' array.",
-      },
-    },
-    required: ["questionText", "options", "correctAnswerIndex"],
-  },
-};
-
 export const generateQuizQuestions = async (topic: string, count: number): Promise<Question[]> => {
-    // IMPORTANT: In a real-world browser application, embedding an API key is a security risk.
-    // This should be handled via a backend proxy. For this environment, we use process.env.API_KEY.
-    const API_KEY = process.env.API_KEY;
-    if (!API_KEY) {
-        console.error("API_KEY environment variable is not set.");
-        throw new Error("API_KEY is not configured. Please ensure it is set in your environment.");
-    }
-
-    const ai = new GoogleGenAI({ apiKey: API_KEY });
+    // This function now calls our Netlify serverless function, 
+    // which securely handles the API key on the backend.
+    const endpoint = '/.netlify/functions/generate-quiz';
 
     try {
-        const prompt = `Generate a ${count}-question multiple-choice quiz about "${topic}". The difficulty should be suitable for astronomy enthusiasts. For each question, provide the question text, exactly 4 options, and the 0-based index of the correct answer.`;
-
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: quizSchema,
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
             },
+            body: JSON.stringify({ topic, count }),
         });
 
-        // The response text is a JSON string, sometimes wrapped in markdown.
-        let jsonText = response.text.trim();
-        if (jsonText.startsWith('```json')) {
-            jsonText = jsonText.slice(7, -3).trim();
-        } else if (jsonText.startsWith('```')) {
-            jsonText = jsonText.slice(3, -3).trim();
+        const responseBody = await response.json();
+
+        if (!response.ok) {
+            // Use the error message from the serverless function's response if available
+            const errorMessage = responseBody.error || `Request failed with status ${response.status}`;
+            const errorDetails = responseBody.details ? `: ${responseBody.details}` : '';
+            throw new Error(`${errorMessage}${errorDetails}`);
         }
-        
-        const questions = JSON.parse(jsonText);
+
+        const questions = responseBody;
         
         if (!Array.isArray(questions) || questions.length === 0) {
             throw new Error("API did not return a valid array of questions.");
@@ -75,19 +39,16 @@ export const generateQuizQuestions = async (topic: string, count: number): Promi
         );
 
         if (!isValid) {
-            throw new Error("Received malformed question data from the API.");
+            throw new Error("Received malformed question data from the server.");
         }
         
         return questions as Question[];
     } catch (error) {
-        console.error("Error calling Gemini API:", error);
+        console.error("Error calling generate-quiz function:", error);
+        // Re-throw the error to be caught by the component
         if (error instanceof Error) {
-            // Check for common API key errors
-            if (error.message.includes("API key not valid")) {
-                throw new Error("The provided API Key is invalid. Please check your configuration.");
-            }
-            throw new Error(`Failed to generate quiz questions: ${error.message}`);
+            throw error;
         }
-        throw new Error("An unknown error occurred while generating the quiz.");
+        throw new Error("An unknown error occurred while communicating with the server.");
     }
 };
