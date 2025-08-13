@@ -12,7 +12,13 @@ import AdminPage from './components/AdminPage';
 // This is the v6/v7 way to create a protected route.
 // It's a wrapper component that checks for auth and navigates away if not authorized.
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { currentParticipantId } = useAppContext();
+    const { currentParticipantId, isLoading } = useAppContext();
+
+    if (isLoading) {
+      // While checking session, show a loading indicator or null
+      return <div className="text-center p-10">Loading session...</div>;
+    }
+
     if (!currentParticipantId) {
         // Redirect them to the /quiz login page if they are not authenticated.
         return <Navigate to="/quiz" replace />;
@@ -20,12 +26,19 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <>{children}</>;
 };
 
-const App: React.FC = () => {
-  return (
-    <AppProvider>
-      <HashRouter>
-        <Layout>
-          {/* Routes is the v6/v7 equivalent of Switch */}
+const AppContent: React.FC = () => {
+    const { isLoading } = useAppContext();
+
+    if (isLoading) {
+      return (
+        <div className="flex justify-center items-center h-screen">
+          <div className="text-white text-xl">Loading Sivali Astronomy Union...</div>
+        </div>
+      )
+    }
+
+    return (
+       <Layout>
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/register" element={<RegisterPage />} />
@@ -39,10 +52,17 @@ const App: React.FC = () => {
               } 
             />
             <Route path="/sivali-admin-portal-7b3d9f" element={<AdminPage />} />
-            {/* Navigate handles catch-all routes in v6/v7 */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>
+    );
+}
+
+const App: React.FC = () => {
+  return (
+    <AppProvider>
+      <HashRouter>
+        <AppContent />
       </HashRouter>
     </AppProvider>
   );

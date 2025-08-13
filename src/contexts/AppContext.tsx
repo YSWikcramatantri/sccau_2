@@ -2,137 +2,149 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import type { Question, Registration, Submission } from '../types';
 
 interface AppContextType {
-  isQuizOpen: boolean;
+  isQuizOpen: boolean | null;
   quizQuestions: Question[];
   registrations: Registration[];
   submissions: Submission[];
   isAdmin: boolean;
   currentParticipantId: string | null;
-  toggleQuizStatus: () => void;
-  setQuizQuestions: (questions: Question[]) => void;
-  addRegistration: (registration: Omit<Registration, 'id' | 'password'>) => string;
-  addSubmission: (submission: Omit<Submission, 'score' | 'submittedAt'>) => void;
-  loginAdmin: (password: string) => boolean;
-  logoutAdmin: () => void;
-  loginParticipant: (password: string) => boolean;
-  logoutParticipant: () => void;
+  isLoading: boolean;
+  
+  fetchInitialData: () => Promise<void>;
+  toggleQuizStatus: () => Promise<void>;
+  setQuizQuestions: (questions: Question[]) => Promise<void>;
+  generateNewQuiz: (topic: string, count: number) => Promise<Question[]>;
+  addRegistration: (registration: Omit<Registration, 'id' | 'password'>) => Promise<string>;
+  addSubmission: (submission: Omit<Submission, 'score' | 'submittedAt'>) => Promise<void>;
+  loginAdmin: (password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
+  loginParticipant: (password: string) => Promise<boolean>;
   getParticipantName: (id: string) => string;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const getInitialState = <T,>(key: string, defaultValue: T): T => {
-  try {
-    const item = window.localStorage.getItem(key);
-    return item ? JSON.parse(item) : defaultValue;
-  } catch (error) {
-    console.error(`Error reading from localStorage key "${key}":`, error);
-    return defaultValue;
-  }
-};
-
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isQuizOpen, setIsQuizOpen] = useState<boolean>(() => getInitialState('SAU_QUIZ_OPEN', false));
-  const [quizQuestions, setQuizQuestionsState] = useState<Question[]>(() => getInitialState('SAU_QUIZ_QUESTIONS', []));
-  const [registrations, setRegistrations] = useState<Registration[]>(() => getInitialState('SAU_REGISTRATIONS', []));
-  const [submissions, setSubmissions] = useState<Submission[]>(() => getInitialState('SAU_SUBMISSIONS', []));
-  const [isAdmin, setIsAdmin] = useState<boolean>(() => sessionStorage.getItem('SAU_IS_ADMIN') === 'true');
-  const [currentParticipantId, setCurrentParticipantId] = useState<string | null>(() => sessionStorage.getItem('SAU_PARTICIPANT_ID'));
+  const [isQuizOpen, setIsQuizOpen] = useState<boolean | null>(null);
+  const [quizQuestions, setQuizQuestionsState] = useState<Question[]>([]);
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [currentParticipantId, setCurrentParticipantId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  useEffect(() => { localStorage.setItem('SAU_QUIZ_OPEN', JSON.stringify(isQuizOpen)); }, [isQuizOpen]);
-  useEffect(() => { localStorage.setItem('SAU_QUIZ_QUESTIONS', JSON.stringify(quizQuestions)); }, [quizQuestions]);
-  useEffect(() => { localStorage.setItem('SAU_REGISTRATIONS', JSON.stringify(registrations)); }, [registrations]);
-  useEffect(() => { localStorage.setItem('SAU_SUBMISSIONS', JSON.stringify(submissions)); }, [submissions]);
-  useEffect(() => { sessionStorage.setItem('SAU_IS_ADMIN', String(isAdmin)); }, [isAdmin]);
-  useEffect(() => { 
-    if (currentParticipantId) {
-      sessionStorage.setItem('SAU_PARTICIPANT_ID', currentParticipantId);
-    } else {
-      sessionStorage.removeItem('SAU_PARTICIPANT_ID');
-    }
-  }, [currentParticipantId]);
-
-  const toggleQuizStatus = () => setIsQuizOpen(prev => !prev);
-
-  const setQuizQuestions = (questions: Question[]) => setQuizQuestionsState(questions);
-
-  const addRegistration = (registration: Omit<Registration, 'id' | 'password'>): string => {
-    const prefixChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    let prefix = '';
-    for (let i = 0; i < 3; i++) {
-        prefix += prefixChars.charAt(Math.floor(Math.random() * prefixChars.length));
-    }
-    const suffix = Math.random().toString(36).substr(2, 6).toUpperCase();
-    const password = `${prefix}-${suffix}`;
-    
-    const newRegistration: Registration = {
-      ...registration,
-      id: `reg-${Date.now()}`,
-      password,
+  const apiFetch = async (url: string, options: RequestInit = {}) => {
+    const defaultOptions: RequestInit = {
+      headers: {
+        'Content-Type': 'application/json',
+      },
     };
-    setRegistrations(prev => [...prev, newRegistration]);
-    return password;
+    const response = await fetch(url, { ...defaultOptions, ...options, headers: {...defaultOptions.headers, ...options.headers} });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'An unknown error occurred' }));
+        throw new Error(errorData.message || `Request failed with status ${response.status}`);
+    }
+    if (response.headers.get('content-type')?.includes('application/json')) {
+        return response.json();
+    }
+    return response.text();
   };
-  
-  const addSubmission = useCallback((submission: Omit<Submission, 'score' | 'submittedAt'>) => {
-    const score = submission.answers.reduce((acc, answer, index) => {
-        if (quizQuestions[index] && answer === quizQuestions[index].correctAnswerIndex) {
-            return acc + 1;
+
+  const fetchInitialData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+        const data = await apiFetch('/api/state');
+        setQuizQuestionsState(data.quizQuestions || []);
+        setIsQuizOpen(data.isQuizOpen);
+        
+        const session = await apiFetch('/api/session');
+        if (session.isAdmin) {
+            setIsAdmin(true);
+            const adminData = await apiFetch('/api/admin/data');
+            setRegistrations(adminData.registrations || []);
+            setSubmissions(adminData.submissions || []);
         }
-        return acc;
-    }, 0);
+        if (session.participantId) {
+            setCurrentParticipantId(session.participantId);
+        }
 
-    const newSubmission: Submission = {
-        ...submission,
-        score,
-        submittedAt: new Date().toISOString(),
-    };
-    setSubmissions(prev => [...prev, newSubmission]);
-  }, [quizQuestions]);
-
-  const loginAdmin = (password: string): boolean => {
-    if (password === 'sivaliAdmin2024!') {
-      setIsAdmin(true);
-      return true;
+    } catch (error) {
+        console.error("Error fetching initial data:", error);
+    } finally {
+        setIsLoading(false);
     }
-    return false;
+  }, []);
+
+  useEffect(() => {
+    fetchInitialData();
+  }, [fetchInitialData]);
+
+  const toggleQuizStatus = async () => {
+    const data = await apiFetch('/api/admin/quiz/status', { method: 'PUT' });
+    setIsQuizOpen(data.isQuizOpen);
   };
   
-  const logoutAdmin = () => setIsAdmin(false);
-
-  const loginParticipant = (password: string): boolean => {
-    const registration = registrations.find(r => r.password === password);
-    if (!registration) return false;
-    
-    const hasSubmitted = submissions.some(s => s.registrationId === registration.id);
-    if (hasSubmitted) return false;
-
-    setCurrentParticipantId(registration.id);
-    return true;
+  const setQuizQuestions = async (questions: Question[]) => {
+      await apiFetch('/api/admin/quiz/questions', { method: 'PUT', body: JSON.stringify({ questions }) });
+      setQuizQuestionsState(questions);
   };
   
-  const logoutParticipant = () => setCurrentParticipantId(null);
+  const generateNewQuiz = async (topic: string, count: number): Promise<Question[]> => {
+      const data = await apiFetch('/api/admin/quiz/generate', { method: 'POST', body: JSON.stringify({ topic, count }) });
+      setQuizQuestionsState(data.questions);
+      return data.questions;
+  };
   
-  const getParticipantName = (id: string) => {
+  const addRegistration = async (registration: Omit<Registration, 'id' | 'password'>): Promise<string> => {
+      const data = await apiFetch('/api/register', { method: 'POST', body: JSON.stringify(registration) });
+      return data.password;
+  };
+
+  const addSubmission = async (submission: Omit<Submission, 'score' | 'submittedAt'>) => {
+      await apiFetch('/api/submit', { method: 'POST', body: JSON.stringify(submission) });
+  };
+  
+  const loginAdmin = async (password: string): Promise<boolean> => {
+      try {
+          await apiFetch('/api/login/admin', { method: 'POST', body: JSON.stringify({ password }) });
+          setIsAdmin(true);
+          await fetchInitialData(); // Re-fetch all data as admin
+          return true;
+      } catch (error) {
+          console.error("Admin login failed:", error);
+          return false;
+      }
+  };
+
+  const loginParticipant = async (password: string): Promise<boolean> => {
+      try {
+        const data = await apiFetch('/api/login/participant', { method: 'POST', body: JSON.stringify({ password }) });
+        setCurrentParticipantId(data.participantId);
+        return true;
+      } catch (error) {
+        console.error("Participant login failed:", error);
+        return false;
+      }
+  };
+  
+  const logout = async () => {
+      await apiFetch('/api/logout', { method: 'POST' });
+      setIsAdmin(false);
+      setCurrentParticipantId(null);
+      setRegistrations([]);
+      setSubmissions([]);
+      // fetch initial data for a logged out user
+      await fetchInitialData();
+  };
+
+  const getParticipantName = (id: string): string => {
     return registrations.find(r => r.id === id)?.name || 'Unknown';
   };
-
+  
   const value: AppContextType = {
-    isQuizOpen,
-    quizQuestions,
-    registrations,
-    submissions,
-    isAdmin,
-    currentParticipantId,
-    toggleQuizStatus,
-    setQuizQuestions,
-    addRegistration,
-    addSubmission,
-    loginAdmin,
-    logoutAdmin,
-    loginParticipant,
-    logoutParticipant,
-    getParticipantName,
+    isQuizOpen, quizQuestions, registrations, submissions, isAdmin, currentParticipantId, isLoading,
+    fetchInitialData, toggleQuizStatus, setQuizQuestions, generateNewQuiz, addRegistration, addSubmission,
+    loginAdmin, logout, loginParticipant, getParticipantName,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

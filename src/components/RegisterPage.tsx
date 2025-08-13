@@ -6,24 +6,28 @@ const RegisterPage: React.FC = () => {
     const [email, setEmail] = useState('');
     const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
     const [error, setError] = useState('');
-    const { addRegistration, registrations } = useAppContext();
+    const [isLoading, setIsLoading] = useState(false);
+    const { addRegistration } = useAppContext();
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
         if (!name || !email) {
             setError('Please fill in both name and email.');
             return;
         }
-        if (registrations.some(r => r.email === email)) {
-            setError('This email has already been registered.');
-            return;
-        }
         
-        const password = addRegistration({ name, email });
-        setGeneratedPassword(password);
-        setName('');
-        setEmail('');
+        setIsLoading(true);
+        try {
+            const password = await addRegistration({ name, email });
+            setGeneratedPassword(password);
+            setName('');
+            setEmail('');
+        } catch (err: any) {
+            setError(err.message || 'An unexpected error occurred.');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const copyToClipboard = () => {
@@ -78,9 +82,10 @@ const RegisterPage: React.FC = () => {
                         {error && <p className="text-red-400 text-sm">{error}</p>}
                         <button
                             type="submit"
-                            className="w-full py-3 px-4 text-lg font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500 transition-all duration-300 transform hover:scale-105 shadow-lg shadow-indigo-600/40"
+                            disabled={isLoading}
+                            className="w-full py-3 px-4 text-lg font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500 transition-all duration-300 transform hover:scale-105 shadow-lg shadow-indigo-600/40 disabled:bg-gray-600 disabled:cursor-wait"
                         >
-                            Generate My Password
+                            {isLoading ? 'Registering...' : 'Generate My Password'}
                         </button>
                     </form>
                 )}

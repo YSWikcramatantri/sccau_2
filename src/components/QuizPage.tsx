@@ -4,22 +4,21 @@ import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../contexts/AppContext';
 
 const QuizPage: React.FC = () => {
-    const { quizQuestions, currentParticipantId, addSubmission, logoutParticipant } = useAppContext();
+    const { quizQuestions, currentParticipantId, addSubmission, logout } = useAppContext();
     // Use useNavigate hook
     const navigate = useNavigate();
     
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [answers, setAnswers] = useState<(number | null)[]>([]);
     const [quizFinished, setQuizFinished] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
-        if (!currentParticipantId || quizQuestions.length === 0) {
-            // Use navigate for navigation
+        if (!currentParticipantId) {
             navigate('/quiz');
-        } else {
+        } else if (quizQuestions.length > 0) {
             setAnswers(Array(quizQuestions.length).fill(null));
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentParticipantId, quizQuestions, navigate]);
 
     const handleAnswerSelect = (optionIndex: number) => {
@@ -42,16 +41,22 @@ const QuizPage: React.FC = () => {
         }
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (window.confirm("Are you sure you want to submit your answers? This action cannot be undone.")) {
             if (currentParticipantId) {
-                addSubmission({ registrationId: currentParticipantId, answers });
-                setQuizFinished(true);
-                setTimeout(() => {
-                    logoutParticipant();
-                    // Use navigate for navigation
-                    navigate('/');
-                }, 3000);
+                setIsSubmitting(true);
+                try {
+                    await addSubmission({ registrationId: currentParticipantId, answers });
+                    setQuizFinished(true);
+                    setTimeout(async () => {
+                        await logout();
+                        navigate('/');
+                    }, 3000);
+                } catch (error) {
+                    console.error("Failed to submit quiz", error);
+                    alert("There was an error submitting your quiz. Please try again.");
+                    setIsSubmitting(false);
+                }
             }
         }
     };
@@ -69,7 +74,7 @@ const QuizPage: React.FC = () => {
     }
     
     if (quizQuestions.length === 0) {
-        return <div className="text-center text-2xl">The quiz is not available at the moment. Please contact an administrator.</div>;
+        return <div className="text-center text-2xl">Loading quiz... Please wait.</div>;
     }
 
     const currentQuestion = quizQuestions[currentQuestionIndex];
@@ -125,9 +130,10 @@ const QuizPage: React.FC = () => {
                     {currentQuestionIndex === quizQuestions.length - 1 ? (
                         <button
                             onClick={handleSubmit}
-                            className="py-3 px-8 text-lg font-bold text-white bg-green-600 rounded-md hover:bg-green-500 transition-colors shadow-lg shadow-green-600/30"
+                            disabled={isSubmitting}
+                            className="py-3 px-8 text-lg font-bold text-white bg-green-600 rounded-md hover:bg-green-500 transition-colors shadow-lg shadow-green-600/30 disabled:bg-gray-600 disabled:cursor-wait"
                         >
-                            Submit
+                            {isSubmitting ? 'Submitting...' : 'Submit'}
                         </button>
                     ) : (
                         <button

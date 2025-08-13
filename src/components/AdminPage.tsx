@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../contexts/AppContext';
-import { generateQuizQuestions } from '../services/geminiService';
 import type { Question } from '../types';
 
-const AdminLoginPage: React.FC<{ onLogin: (password: string) => boolean }> = ({ onLogin }) => {
+const AdminLoginPage: React.FC<{ onLogin: (password: string) => Promise<boolean> }> = ({ onLogin }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!onLogin(password)) {
+        setError('');
+        setIsLoggingIn(true);
+        const success = await onLogin(password);
+        if (!success) {
             setError('Invalid password.');
         }
+        setIsLoggingIn(false);
     };
 
     return (
@@ -31,8 +35,8 @@ const AdminLoginPage: React.FC<{ onLogin: (password: string) => boolean }> = ({ 
                         />
                     </div>
                     {error && <p className="text-red-400 text-sm">{error}</p>}
-                    <button type="submit" className="w-full py-3 text-lg font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500 transition-colors">
-                        Login
+                    <button type="submit" disabled={isLoggingIn} className="w-full py-3 text-lg font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500 transition-colors disabled:bg-gray-600 disabled:cursor-wait">
+                        {isLoggingIn ? 'Logging In...' : 'Login'}
                     </button>
                 </form>
             </div>
@@ -147,9 +151,10 @@ const AdminDashboard: React.FC = () => {
         quizQuestions, 
         registrations, 
         submissions, 
-        setQuizQuestions, 
+        setQuizQuestions,
+        generateNewQuiz,
         getParticipantName,
-        logoutAdmin
+        logout
     } = useAppContext();
     
     const [activeTab, setActiveTab] = useState('summary');
@@ -166,9 +171,19 @@ const AdminDashboard: React.FC = () => {
         setIsLoading(true);
         setError('');
         try {
-            const questions: Question[] = await generateQuizQuestions(topic, numQuestions);
-            setQuizQuestions(questions);
+            await generateNewQuiz(topic, numQuestions);
             alert('New quiz generated successfully!');
+        } catch (err: any) {
+            setError(err.message || 'An unknown error occurred.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+    const handleToggleQuizStatus = async () => {
+        setIsLoading(true);
+        try {
+            await toggleQuizStatus();
         } catch (err: any) {
             setError(err.message || 'An unknown error occurred.');
         } finally {
@@ -194,21 +209,21 @@ const AdminDashboard: React.FC = () => {
         setEditingQuestionIndex(null);
     };
 
-    const handleSaveQuestion = (question: Question) => {
+    const handleSaveQuestion = async (question: Question) => {
         const newQuestions = [...quizQuestions];
         if (editingQuestionIndex !== null) {
             newQuestions[editingQuestionIndex] = question;
         } else {
             newQuestions.push(question);
         }
-        setQuizQuestions(newQuestions);
+        await setQuizQuestions(newQuestions);
         handleCloseModal();
     };
 
-    const handleDeleteQuestion = (index: number) => {
+    const handleDeleteQuestion = async (index: number) => {
         if (window.confirm("Are you sure you want to delete this question?")) {
             const newQuestions = quizQuestions.filter((_, i) => i !== index);
-            setQuizQuestions(newQuestions);
+            await setQuizQuestions(newQuestions);
         }
     };
     
@@ -241,7 +256,7 @@ const AdminDashboard: React.FC = () => {
                         <div className="space-y-6">
                             <div className="bg-gray-800 p-6 rounded-lg">
                                 <h3 className="text-xl font-semibold mb-3 text-blue-300">Quiz Status</h3>
-                                <button onClick={toggleQuizStatus} className={`w-full px-6 py-3 font-bold rounded-md transition-colors ${isQuizOpen ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-500 hover:bg-green-600'}`}>
+                                <button onClick={handleToggleQuizStatus} disabled={isLoading} className={`w-full px-6 py-3 font-bold rounded-md transition-colors ${isQuizOpen ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-500 hover:bg-green-600'} disabled:bg-gray-600`}>
                                     Submissions are {isQuizOpen ? 'OPEN - Click to Close' : 'CLOSED - Click to Open'}
                                 </button>
                             </div>
@@ -278,7 +293,7 @@ const AdminDashboard: React.FC = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {submissions.length > 0 ? submissions.map(sub => (
+                                    {submissions.length > 0 ? submissions.sort((a,b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()).map(sub => (
                                         <tr key={sub.registrationId} className="hover:bg-gray-700/50">
                                             <td className="p-3 border-b border-gray-700/50">{getParticipantName(sub.registrationId)}</td>
                                             <td className="p-3 border-b border-gray-700/50">{sub.score} / {quizQuestions.length}</td>
@@ -303,7 +318,7 @@ const AdminDashboard: React.FC = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {registrations.length > 0 ? registrations.map(reg => (
+                                    {registrations.length > 0 ? [...registrations].reverse().map(reg => (
                                         <tr key={reg.id} className="hover:bg-gray-700/50">
                                             <td className="p-3 border-b border-gray-700/50">{reg.name}</td>
                                             <td className="p-3 border-b border-gray-700/50">{reg.email}</td>
@@ -356,7 +371,7 @@ const AdminDashboard: React.FC = () => {
         <div className="text-white min-h-screen bg-gray-900 p-4 sm:p-8">
             <header className="flex flex-col sm:flex-row justify-between sm:items-center mb-8 pb-4 border-b border-gray-700">
                 <h1 className="text-4xl font-bold mb-4 sm:mb-0">Admin Dashboard</h1>
-                <button onClick={logoutAdmin} className="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-md transition-colors self-start sm:self-center">Logout</button>
+                <button onClick={logout} className="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-md transition-colors self-start sm:self-center">Logout</button>
             </header>
 
             <div className="border-b border-gray-700 mb-6">

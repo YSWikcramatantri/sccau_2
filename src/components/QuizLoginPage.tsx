@@ -6,32 +6,35 @@ import { useAppContext } from '../contexts/AppContext';
 const QuizLoginPage: React.FC = () => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-    const { loginParticipant, isQuizOpen, registrations, submissions } = useAppContext();
+    const [isLoading, setIsLoading] = useState(false);
+    const { loginParticipant, isQuizOpen } = useAppContext();
     // Use useNavigate hook
     const navigate = useNavigate();
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+        setIsLoading(true);
 
         if (!isQuizOpen) {
             setError('Submissions are currently closed. Please check back later.');
+            setIsLoading(false);
             return;
         }
         
-        const registration = registrations.find(r => r.password === password);
-        if (registration && submissions.some(s => s.registrationId === registration.id)) {
-            setError('This password has already been used to submit a quiz.');
-            return;
-        }
+        const success = await loginParticipant(password);
 
-        if (loginParticipant(password)) {
-            // Use navigate for navigation
+        if (success) {
             navigate('/quiz/start');
         } else {
-            setError('Invalid password or you have already submitted.');
+            setError('Invalid password, or this password has already been used to submit a quiz.');
         }
+        setIsLoading(false);
     };
+
+    if (isQuizOpen === null) {
+        return <div className="text-center text-gray-300">Loading quiz status...</div>;
+    }
 
     return (
         <div className="max-w-md mx-auto">
@@ -55,10 +58,10 @@ const QuizLoginPage: React.FC = () => {
                     {error && <p className="text-red-400 text-sm text-center">{error}</p>}
                     <button
                         type="submit"
-                        disabled={!isQuizOpen}
+                        disabled={!isQuizOpen || isLoading}
                         className="w-full py-3 px-4 text-lg font-bold text-white bg-blue-600 rounded-md hover:bg-blue-500 transition-all duration-300 transform hover:scale-105 shadow-lg shadow-blue-600/40 disabled:bg-gray-600 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
                     >
-                        {isQuizOpen ? 'Start Quiz' : 'Submissions Closed'}
+                        {isLoading ? 'Logging In...' : (isQuizOpen ? 'Start Quiz' : 'Submissions Closed')}
                     </button>
                 </form>
             </div>
